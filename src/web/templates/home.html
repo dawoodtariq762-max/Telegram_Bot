@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block content %}
+<div class="row">
+  <div class="col-md-6">
+    <div class="card mb-3">
+      <div class="card-header">Account</div>
+      <div class="card-body">
+        <p><b>Username:</b> {{ user.username }}</p>
+        <p><b>Email:</b> {{ user.email or '—' }}</p>
+        <p><b>Status:</b> {{ 'Active' if user.is_active else 'Inactive' }}</p>
+        <p><b>Subscription:</b> {{ user.subscription_plan }}
+          {% if user.is_subscribed %}(active){% else %}(inactive){% endif %}</p>
+        <p><b>Telegram:</b> {{ 'Linked' if user.telegram_linked else 'Not linked' }}</p>
+        <p><b>Panel credentials:</b> {{ 'Saved' if user.panel_creds_set else 'Not saved' }}</p>
+      </div>
+    </div>
+    <div class="d-grid gap-2">
+      <a class="btn btn-outline-primary" href="/settings">Manage Panel Credentials</a>
+      <a class="btn btn-outline-primary" href="/link/telegram">Link Telegram Account</a>
+    </div>
+  </div>
+  <div class="col-md-6">
+    <div class="card">
+      <div class="card-header">Recent Activity</div>
+      <ul class="list-group list-group-flush">
+        {% for a in activity %}
+          <li class="list-group-item">
+            <small class="text-muted">{{ a.created_at.strftime('%Y-%m-%d %H:%M') }}</small><br/>
+            <b>{{ a.action }}</b> — {{ a.detail or '' }}
+          </li>
+        {% else %}
+          <li class="list-group-item text-muted">No activity yet.</li>
+        {% endfor %}
+      </ul>
+    </div>
+  </div>
+</div>
+{% endblock %}

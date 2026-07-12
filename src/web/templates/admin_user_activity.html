@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}User Activity{% endblock %}
+{% block content %}
+<a class="btn btn-sm btn-outline-secondary mb-3" href="/admin">← Back to users</a>
+<h5>Activity — {{ target.username if target else 'User' }}</h5>
+<ul class="list-group">
+  {% for a in activity %}
+    <li class="list-group-item">
+      <small class="text-muted">{{ a.created_at.strftime('%Y-%m-%d %H:%M') }}</small><br/>
+      <b>{{ a.action }}</b> — {{ a.detail or '' }} <span class="text-muted">({{ a.ip }})</span>
+    </li>
+  {% else %}
+    <li class="list-group-item text-muted">No activity recorded.</li>
+  {% endfor %}
+</ul>
+{% endblock %}

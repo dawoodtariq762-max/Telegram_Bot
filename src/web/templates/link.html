@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Link Telegram{% endblock %}
+{% block content %}
+<div class="card" style="max-width:560px;">
+  <div class="card-body">
+    <h5>Link your Telegram account</h5>
+    <p>Status: <b>{{ 'Linked' if user.telegram_linked else 'Not linked' }}</b></p>
+    {% if user.telegram_linked %}
+      <p class="text-success">Your Telegram account is already linked.</p>
+    {% else %}
+      <p>Generate a code, then in Telegram send: <code>/link &lt;code&gt;</code></p>
+      <form method="post" action="/link/telegram/generate">
+        <button class="btn btn-primary" type="submit">Generate Code</button>
+      </form>
+      {% if code %}
+        <div class="alert alert-info mt-3">Your link code: <code>{{ code }}</code></div>
+      {% endif %}
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
