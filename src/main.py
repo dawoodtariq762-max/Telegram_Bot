@@ -19,7 +19,8 @@ from src.config import Settings
 from src.core.logging import configure_logging
 from src.core.security import CredentialStore
 from src.db import models  # noqa: F401  (register models before create_tables)
-from src.db.base import SessionLocal, create_tables, init_db
+from src.db import base as db_base
+from src.db.base import create_tables, init_db
 from src.db.crud import create_user, get_user_by_username
 from src.panel.browser import BrowserManager
 from src.web.app import app as web_app
@@ -28,7 +29,7 @@ from src.web.app import app as web_app
 async def ensure_initial_admin(settings: Settings) -> None:
     if not settings.admin_username:
         return
-    async with SessionLocal() as s:
+    async with db_base.SessionLocal() as s:
         if not await get_user_by_username(s, settings.admin_username):
             await create_user(
                 s,
