@@ -10,7 +10,6 @@ from aiogram.types import TelegramObject
 
 from src.config import Settings
 from src.core.security import CredentialStore
-from src.db.base import SessionLocal
 from src.panel.browser import BrowserManager
 
 
@@ -26,6 +25,10 @@ class DepsMiddleware(BaseMiddleware):
         data["settings"] = self.settings
         data["browser_manager"] = self.browser_manager
         data["security"] = self.security
+        # Import lazily: SessionLocal is None until init_db() assigns it, so a
+        # top-level `from src.db.base import SessionLocal` would bind to None.
+        from src.db.base import SessionLocal
+
         async with SessionLocal() as session:
             data["session"] = session
             return await handler(event, data)
