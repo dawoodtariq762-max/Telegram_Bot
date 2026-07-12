@@ -9,7 +9,9 @@ from pathlib import Path
 from fastapi import Depends, FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
-from starlette.middleware.sessions import SessionMiddleware
+
+# Dependency-free signed-cookie sessions (no itsdangerous / starlette sessions).
+from src.web.session import SessionMiddleware
 
 from src.config import Settings
 from src.core.security import hash_password, verify_password
