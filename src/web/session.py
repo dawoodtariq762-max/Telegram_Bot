@@ -29,19 +29,36 @@ DEFAULT_COOKIE_NAME = "session"
 DEFAULT_MAX_AGE = 60 * 60 * 24 * 30  # 30 days
 
 
+def _b64e(b: bytes) -> str:
+    """URL-safe base64 without padding (cookie/path friendly)."""
+    return base64.urlsafe_b64encode(b).decode("ascii").rstrip("=")
+
+
+def _b64d(s: str) -> bytes:
+    """Inverse of ``_b64e``; restores padding before decoding."""
+    pad = "=" * (-len(s) % 4)
+    return base64.urlsafe_b64decode(s + pad)
+
+
 def _sign(data: bytes, secret: str) -> str:
+    # Encode the payload and the HMAC signature as two separate, unpadded,
+    # URL-safe base64 segments joined by a single "." separator. Because neither
+    # base64 segment can contain a literal ".", a simple split on the first "."
+    # is unambiguous and safe. (The previous scheme concatenated raw data +
+    # signature and relied on rsplit(".", 1), but the raw 32-byte HMAC can
+    # itself contain a 0x2E byte, which split it in the wrong place ~11% of the
+    # time and silently dropped the session.)
     sig = hmac.new(secret.encode(), data, hashlib.sha256).digest()
-    return base64.urlsafe_b64encode(data + b"." + sig).decode("ascii")
+    return f"{_b64e(data)}.{_b64e(sig)}"
 
 
 def _unsign(token: str, secret: str) -> Optional[Dict[str, Any]]:
     try:
-        raw = base64.urlsafe_b64decode(token.encode("ascii"))
+        data_b64, sig_b64 = token.split(".", 1)
+        data = _b64d(data_b64)
+        sig = _b64d(sig_b64)
     except Exception:
         return None
-    if b"." not in raw:
-        return None
-    data, sig = raw.rsplit(b".", 1)
     expected = hmac.new(secret.encode(), data, hashlib.sha256).digest()
     if not hmac.compare_digest(sig, expected):
         return None
@@ -73,7 +90,14 @@ class SessionMiddleware:
 
         conn = HTTPConnection(scope)
         token = conn.cookies.get(self.cookie_name)
-        session: Dict[str, Any] = _unsign(token, self.secret_key) if token else {}
+        # `_unsign` returns None for a missing, invalid, expired, or
+        # stale cookie (e.g. one signed by the old starlette SessionMiddleware
+        # with a different format). Never leave `session` as None — otherwise
+        # `request.session.get(...)` / `request.session[...]` crash with
+        # "AttributeError: 'NoneType' object has no attribute 'get'".
+        # Falling back to {} also causes the stale cookie to be cleared on the
+        # next response.
+        session: Dict[str, Any] = _unsign(token, self.secret_key) or {}
 
         # Starlette exposes request.session via scope["session"].
         scope["session"] = session

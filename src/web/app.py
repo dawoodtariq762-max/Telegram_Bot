@@ -89,8 +89,8 @@ def _client_ip(request: Request) -> str:
 
 # ----------------------------- Auth -----------------------------
 @app.get("/login", response_class=HTMLResponse)
-async def login_get(request: Request):
-    if await get_current_user(request):
+async def login_get(request: Request, db=Depends(get_db)):
+    if await get_current_user(request, db):
         return _redirect("/")
     return _render("login.html", {"request": request, "error": None})
 
