@@ -37,7 +37,7 @@ async def cmd_link(message: Message, session) -> None:
     parts = message.text.strip().split()
     if len(parts) < 2:
         await message.answer(
-            "Usage: /link <code>\n"
+            "Usage: /link &lt;code&gt;\n"
             "Open the web dashboard, go to 'Link Telegram', copy the code, and send it here."
         )
         return

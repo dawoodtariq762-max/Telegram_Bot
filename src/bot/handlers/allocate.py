@@ -30,11 +30,30 @@ router = Router()
 LIMIT_MSG = "Each client can only receive a maximum of 300 numbers per day."
 
 
+def _format_numbers_message(numbers: list[str]) -> list[str]:
+    """Split the allocated-numbers list into Telegram-sized HTML messages.
+
+    Telegram caps a message at 4096 characters; chunk with a safe margin so a
+    large allocation (e.g. 300 numbers) does not get rejected as "too long".
+    Numbers are wrapped in ``<code>`` (valid HTML, since parse_mode is HTML).
+    """
+    chunks: list[str] = []
+    current = "✅ <b>Allocated numbers:</b>"
+    for n in numbers:
+        line = f"\n<code>{n}</code>"
+        if len(current) + len(line) > 4000:
+            chunks.append(current)
+            current = "✅ <b>Allocated numbers (cont.):</b>"
+        current += line
+    chunks.append(current)
+    return chunks
+
+
 def _require_linked(user) -> str | None:
     if not user or not user.telegram_linked:
         return (
             "Your Telegram account is not linked to a dashboard account.\n"
-            "Open the web dashboard, generate a Telegram link code, then send: /link <code>"
+            "Open the web dashboard, generate a Telegram link code, then send: /link &lt;code&gt;"
         )
     if not user.panel_creds_set:
         return "Please save your panel credentials first with /setpanel (username + password)."
@@ -106,10 +125,18 @@ async def alloc_quantity(
     try:
         numbers = await svc.allocate(client, qty)
     except InsufficientNumbers as exc:
+        log.warning(
+            "allocate.insufficient",
+            user=user.id,
+            client=client,
+            requested=qty,
+            available=exc.available,
+        )
         await message.answer(f"Only {exc.available} numbers are currently available.")
         await state.clear()
         return
-    except (PanelAuthError, PanelFetchError):
+    except (PanelAuthError, PanelFetchError) as exc:
+        log.error("allocate.panel_error", user=user.id, client=client, error=str(exc))
         await message.answer("A panel error occurred during allocation. Please try again later.")
         await state.clear()
         return
@@ -125,8 +152,8 @@ async def alloc_quantity(
     await log_activity(session, user.id, "allocate", f"client={client} count={len(numbers)}")
     await state.clear()
 
-    text = "✅ <b>Allocated numbers:</b>\n" + "\n".join(f"`{n}`" for n in numbers)
-    await message.answer(text, parse_mode="HTML")
+    for part in _format_numbers_message(numbers):
+        await message.answer(part, parse_mode="HTML")
 
 
 # ----------------------------- /setpanel -----------------------------
@@ -136,7 +163,7 @@ async def cmd_setpanel(message: Message, state: FSMContext, session) -> None:
     if not user or not user.telegram_linked:
         await message.answer(
             "Please link your Telegram account first: open the dashboard, "
-            "generate a link code, then /link <code>."
+            "generate a link code, then /link &lt;code&gt;."
         )
         return
     await state.set_state(SetPanelStates.username)

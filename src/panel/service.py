@@ -74,10 +74,49 @@ class PanelService:
         if self._logged_in:
             return
         if self.settings.panel_mode == "live":
+            # If we already have a saved session, try to reuse it before doing
+            # a full (captcha) login. This avoids a redundant re-login on every
+            # allocation and the flakiness that comes with it.
+            if self.storage_state:
+                try:
+                    if await self._try_restore_session():
+                        self._logged_in = True
+                        return
+                except Exception as exc:  # noqa: BLE001
+                    log.warning("panel.restore.failed", user=self.user_key, error=str(exc))
+                    self.storage_state = None
             await self._login_live()
         else:
             log.warning("panel.mock.login", user=self.user_key)
         self._logged_in = True
+
+    async def _try_restore_session(self) -> bool:
+        """Return True if the saved ``storage_state`` already yields a logged-in
+        session on the MySMSNumbers page (no captcha login needed)."""
+        ctx, page = await self._page()
+        target = self.settings.panel_base_url.rstrip("/") + "/agent/MySMSNumbers"
+        try:
+            await page.goto(target, wait_until="networkidle")
+        except Exception:
+            return False
+        # Landed back on the login form -> not authenticated.
+        if await page.query_selector(S.LOGIN["username"]):
+            return False
+        try:
+            await page.wait_for_selector(
+                S.TABLE["id"], timeout=self.settings.browser_timeout_ms
+            )
+        except Exception:
+            return False
+        current = await page.evaluate("window.location.href")
+        self._dashboard_base = (
+            current.rsplit("/", 1)[0]
+            if current.startswith("http")
+            else self.settings.panel_base_url.rstrip("/")
+        )
+        self.storage_state = json.dumps(await ctx.storage_state())
+        log.info("panel.session.restored", user=self.user_key)
+        return True
 
     # ------------------------------ mock ------------------------------
     def _allocate_mock(self, count: int) -> list[str]:
