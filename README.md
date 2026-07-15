@@ -17,11 +17,13 @@ where each user manages their own (encrypted) panel credentials.
    delete users, view activity logs, manage Telegram linkage. (`src/web/app.py`)
 2. **User Dashboard** — login, save/update **encrypted** panel username &
    password, view activity, link Telegram. Admin **cannot** see panel passwords.
-3. **Telegram linking** — each dashboard account links 1:1 to a Telegram account
-   via a code (`/link <code>`); the bot then auto-identifies the user and uses
-   their saved credentials. (`src/bot/handlers/start.py`, `allocate.py`)
-4. **Commands** — `/start`, `/setpanel`, `/allocate` (asks Client → Quantity →
-   allocates), `/help`. (`src/bot/handlers/allocate.py`)
+3. **Telegram auth via token** — the bot **never asks for panel credentials**.
+   The user generates an **access token** on the dashboard (Settings → Generate
+   Token) and pastes it once into the bot (`/start`). The token resolves to the
+   user's encrypted panel credentials on the server.
+   (`src/bot/handlers/start.py`, `allocate.py`, `src/db/crud.py` `create_token`)
+4. **Commands** — `/start` (connect with token), `/allocate` (asks Client →
+   Quantity → allocates), `/help`. (`src/bot/handlers/allocate.py`, `start.py`)
 5. **Daily limit** — max **300 numbers per client per UK day**; exceeding returns
    *"Each client can only receive a maximum of 300 numbers per day."*
 6. **Insufficient** — if fewer are available: *"Only X numbers are currently
@@ -37,29 +39,30 @@ where each user manages their own (encrypted) panel credentials.
 
 ```
                  ┌─────────────── Telegram user ───────────────┐
-                 │  /link <code>  /setpanel  /allocate          │
+                 │  /start (paste token)  /allocate  /help       │
                  └──────────────────────┬───────────────────────┘
-                                        │ telegram_id
+                                        │ token
                                         ▼
         ┌──────────────────────── Dispatcher + DepsMiddleware ───────────────────────┐
-        │  resolves DashboardUser(telegram_id) → decrypts panel creds → PanelService   │
+        │  resolves Token → DashboardUser → decrypts panel creds → PanelService        │
         └───────────────────────────────┬─────────────────────────────────────────────┘
-                                          │ Playwright (per-user context)
+                                          │ Playwright (per-token context)
                                           ▼
         ┌──────────────────────── BrowserManager (1 chromium, N isolated contexts) ─────┐
-        │  context[key=user.id]  •  lock[key]  •  cookies/storage_state persisted in DB  │
+        │  context[key=token]  •  lock[key]  •  storage_state persisted per token in DB  │
         └───────────────────────────────────────────┬──────────────────────────────────┘
                                                      │ HTTPS
                                                      ▼
                                           Third-party SMS Panel
-                                          (owner-less: each user logs in as THEMSELVES)
+                                          (each token logs in as its OWN panel account)
 
-        Web (FastAPI, same process):  /login  /  /  (dashboard)  /settings  /link/telegram
-                                       /admin  (users, subs, delete, logs, TG access)
+        Web (FastAPI, same process):  /login  /  /  (dashboard)  /settings
+                                       (Settings → Panel Password + Generate Token)
+                                       /admin  (users, subs, delete, logs)
                                                      │
                                                      ▼
-                                          PostgreSQL / SQLite  (users, allocation_logs,
-                                           activity_logs, encrypted panel creds)
+                  PostgreSQL / SQLite  (users, tokens, allocation_logs, activity_logs,
+                                       encrypted panel creds)
 ```
 
 **Key change from the earlier design:** there is **no shared owner account**
@@ -109,11 +112,13 @@ python -m src.main        # runs BOTH the bot and the web dashboard
 ## User onboarding flow
 
 1. Admin creates the user in the **Admin Panel** (`/admin` → Create User).
-2. User opens the dashboard, goes to **Link Telegram**, copies the code.
-3. In Telegram: `/link <code>` → account linked.
-4. User runs `/setpanel` (or saves creds in the dashboard) → encrypted.
+2. User opens the dashboard → **Settings** → saves their **Panel Password**
+   (encrypted, stored only on the website; the admin never sees it).
+3. User clicks **Generate Token** on the Settings page and copies it.
+4. In Telegram: `/start` → paste the token → bot replies **Connected successfully.**
 5. User runs `/allocate` → bot asks **Client Username** → **Quantity** → allocates
-   using the saved credentials, returns the numbers.
+   using the token's credentials, returns the numbers. The bot never asks for the
+   panel password.
 
 ---
 
@@ -161,7 +166,10 @@ both the Telegram bot AND the FastAPI web dashboard in the same process.
 3. Add a **PostgreSQL** plugin; copy its `DATABASE_URL` into the service
    environment variables (it overrides the SQLite default).
 4. Set these **environment variables** in Railway (Variables tab):
-   - `BOT_TOKEN` — from @BotFather
+   - `BOT_TOKEN` — from @BotFather (format `<id>:<hash>`). The web dashboard
+     and `/healthz` start **even if this is temporarily invalid**; the bot
+     simply won't run until a valid token is set (watch the logs for
+     `bot.startup.failed`).
    - `ENCRYPTION_KEY` — `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`
    - `WEB_SECRET_KEY` — any long random string
    - `ADMIN_USERNAME` / `ADMIN_PASSWORD` — the initial admin login
@@ -178,7 +186,8 @@ both the Telegram bot AND the FastAPI web dashboard in the same process.
 
 ### Changing credentials later
 - **Panel username/password** are per *user* and live only in the DB (encrypted).
-  Users change them via the dashboard **Settings** page or Telegram `/setpanel`.
+  Users change them via the dashboard **Settings** page (Panel Credentials card).
+  They must then **Generate a new Token** (the old one is revoked immediately).
   No code change needed.
 - **Telegram bot token** → update `BOT_TOKEN` env + redeploy.
 - **Dashboard admin password** → change it from the admin's own Settings page

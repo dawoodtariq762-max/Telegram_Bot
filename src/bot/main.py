@@ -23,6 +23,14 @@ async def main() -> None:
     configure_logging(settings.log_level)
     log = structlog.get_logger("bot")
     log.info("bot.starting", panel_mode=settings.panel_mode)
+    if settings.panel_mode != "live":
+        log.warning(
+            "panel.mode.mock",
+            hint=(
+                "Allocations will return FAKE numbers (not from the real panel). "
+                "Set PANEL_MODE=live for production use."
+            ),
+        )
 
     init_db(settings)
     await create_tables()

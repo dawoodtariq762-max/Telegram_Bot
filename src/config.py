@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 
+from cryptography.fernet import Fernet
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -74,4 +75,29 @@ class Settings(BaseSettings):
     def _validate_panel_mode(cls, v: str) -> str:
         if v not in {"mock", "live"}:
             raise ValueError("panel_mode must be 'mock' or 'live'")
+        return v
+
+    @field_validator("encryption_key")
+    @classmethod
+    def _validate_encryption_key(cls, v: str) -> str:
+        # Fail fast with a clear, actionable message instead of the cryptic
+        # "Fernet key must be 32 url-safe base64-encoded bytes" raised later
+        # inside CredentialStore.
+        v = (v or "").strip()
+        if not v:
+            raise ValueError(
+                "ENCRYPTION_KEY is required. Generate a valid Fernet key with: "
+                "python -c \"from cryptography.fernet import Fernet; "
+                'print(Fernet.generate_key().decode())"'
+            )
+        try:
+            Fernet(v.encode())
+        except (ValueError, TypeError):
+            raise ValueError(
+                "ENCRYPTION_KEY must be a valid Fernet key (32 url-safe "
+                "base64-encoded bytes), not a passphrase or placeholder. "
+                "Generate one with: "
+                "python -c \"from cryptography.fernet import Fernet; "
+                'print(Fernet.generate_key().decode())"'
+            )
         return v

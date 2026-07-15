@@ -16,5 +16,7 @@ uvicorn[standard]>=0.30.0
 jinja2>=3.1.0
 python-multipart>=0.0.9
 bcrypt>=4.1.0
-# SessionMiddleware (starlette) requires itsdangerous; declare it explicitly.
+# NOTE: the dashboard no longer imports starlette.middleware.sessions, so it
+# does NOT depend on itsdangerous at runtime. It is kept here only because
+# Starlette still lists it as a dependency; harmless if absent.
 itsdangerous>=2.1.2

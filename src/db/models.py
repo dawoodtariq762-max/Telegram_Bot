@@ -76,3 +76,38 @@ class ActivityLog(Base):
     detail = sa.Column(sa.Text)
     ip = sa.Column(sa.String(64))
     created_at = sa.Column(sa.DateTime, default=_utcnow)
+
+
+class Token(Base):
+    """Telegram access token.
+
+    A token is generated on the website and pasted once into the bot. It
+    resolves (via ``user_id``) to the dashboard user's panel credentials, which
+    are stored encrypted on the *user* row and copied (as ciphertext) into this
+    row at generation time. The bot never asks for — and never sees in plain
+    text — the panel password; it only ever receives the token string and
+    decrypts the attached credentials server-side.
+
+    Per-token isolation: each token carries its own panel-credential snapshot
+    and its own Playwright ``storage_state`` (browser session), keyed in the
+    browser manager by the token value. Different tokens never share cookies or
+    login state. Regenerating a token revokes the previous one immediately.
+    """
+
+    __tablename__ = "tokens"
+
+    id = sa.Column(sa.Integer, primary_key=True)
+    token = sa.Column(sa.String(64), unique=True, index=True, nullable=False)
+    user_id = sa.Column(
+        sa.Integer, sa.ForeignKey("users.id"), nullable=False, index=True
+    )
+    # Ciphertext snapshots (same Fernet key as the user row).
+    panel_username = sa.Column(sa.String(255), nullable=False)
+    encrypted_panel_password = sa.Column(sa.Text, nullable=False)
+    # Persisted Playwright storage_state (keeps THIS token's panel login alive).
+    storage_state = sa.Column(sa.Text)
+    telegram_id = sa.Column(sa.BigInteger, nullable=True, index=True)
+    created_at = sa.Column(sa.DateTime, default=_utcnow)
+    expires_at = sa.Column(sa.DateTime, nullable=True)
+    last_used_at = sa.Column(sa.DateTime, nullable=True)
+    is_active = sa.Column(sa.Boolean, default=True)

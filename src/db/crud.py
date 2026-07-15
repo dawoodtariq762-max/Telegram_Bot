@@ -6,11 +6,11 @@ import secrets
 import uuid
 from datetime import datetime, timedelta, timezone as _dtz
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.security import CredentialStore, hash_password, verify_password
-from src.db.models import ActivityLog, AllocationLog, User
+from src.db.models import ActivityLog, AllocationLog, Token, User
 
 
 # ----------------------------- Users -----------------------------
@@ -118,7 +118,99 @@ async def set_panel_credentials(
     user.encrypted_panel_password = store.encrypt(panel_password)
     user.panel_creds_set = True
     user.storage_state = None  # force fresh login with new creds
+    # The panel password changed, so any saved token browser sessions are now
+    # invalid. Drop them; the user should regenerate their token.
+    await session.execute(
+        update(Token).where(Token.user_id == user.id).values(storage_state=None)
+    )
     session.add(user)
+    await session.commit()
+
+
+# ------------------------ Telegram tokens ------------------------
+def _gen_token_value() -> str:
+    return "mufasa_" + secrets.token_urlsafe(20)
+
+
+async def create_token(session: AsyncSession, user: User, ttl=None) -> Token:
+    """Generate a new active token for ``user``, revoking any prior tokens.
+
+    Snapshots the user's (encrypted) panel credentials into the token row so
+    the bot can resolve credentials from the token alone.
+    """
+    if not user.panel_creds_set:
+        raise ValueError("Set your panel password on the website first.")
+    # Revoke existing tokens for this user.
+    await revoke_user_tokens(session, user)
+    token = Token(
+        token=_gen_token_value(),
+        user_id=user.id,
+        panel_username=user.encrypted_panel_username,
+        encrypted_panel_password=user.encrypted_panel_password,
+        created_at=datetime.now(_dtz.utc),
+        expires_at=(datetime.now(_dtz.utc) + ttl) if ttl else None,
+        is_active=True,
+    )
+    session.add(token)
+    await session.commit()
+    await session.refresh(token)
+    return token
+
+
+async def revoke_user_tokens(session: AsyncSession, user: User) -> None:
+    await session.execute(
+        update(Token)
+        .where(Token.user_id == user.id, Token.is_active == True)  # noqa: E712
+        .values(is_active=False)
+    )
+    await session.commit()
+
+
+def _token_active_filter(stmt):
+    return stmt.where(
+        Token.is_active == True,  # noqa: E712
+        (Token.expires_at.is_(None)) | (Token.expires_at > datetime.now(_dtz.utc)),
+    )
+
+
+async def get_token_by_value(session: AsyncSession, value: str) -> Token | None:
+    q = _token_active_filter(select(Token).where(Token.token == value))
+    res = await session.execute(q)
+    return res.scalar_one_or_none()
+
+
+async def get_active_token(
+    session: AsyncSession, user: User
+) -> Token | None:
+    """The user's currently active token (regardless of Telegram linkage)."""
+    q = _token_active_filter(select(Token).where(Token.user_id == user.id))
+    res = await session.execute(q)
+    return res.scalar_one_or_none()
+
+
+async def get_active_token_by_telegram(
+    session: AsyncSession, telegram_id: int
+) -> Token | None:
+    q = _token_active_filter(select(Token).where(Token.telegram_id == telegram_id))
+    res = await session.execute(q)
+    return res.scalar_one_or_none()
+
+
+async def save_token_storage_state(
+    session: AsyncSession, token: Token, state: str
+) -> None:
+    token.storage_state = state
+    token.last_used_at = datetime.now(_dtz.utc)
+    session.add(token)
+    await session.commit()
+
+
+async def set_token_telegram(
+    session: AsyncSession, token: Token, telegram_id: int | None
+) -> None:
+    token.telegram_id = telegram_id
+    token.last_used_at = datetime.now(_dtz.utc)
+    session.add(token)
     await session.commit()
 
 

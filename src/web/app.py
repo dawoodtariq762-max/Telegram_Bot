@@ -17,16 +17,18 @@ from src.config import Settings
 from src.core.security import hash_password, verify_password
 from src.db.base import create_tables, init_db
 from src.db.crud import (
+    create_token,
     create_user,
     delete_user,
+    get_active_token,
     get_user_activity,
     get_user_by_id,
     get_user_by_username,
     get_user_by_telegram,
     list_users,
     log_activity,
+    revoke_user_tokens,
     set_active,
-    set_link_code,
     set_panel_credentials,
     set_subscription,
     set_telegram,
@@ -136,7 +138,17 @@ async def settings_get(request: Request, db=Depends(get_db)):
     user = await get_current_user(request, db)
     if not user:
         return _redirect("/login")
-    return _render("settings.html", {"request": request, "user": user})
+    active = await get_active_token(db, user)
+    new_token = request.query_params.get("new_token", "")
+    return _render(
+        "settings.html",
+        {
+            "request": request,
+            "user": user,
+            "active_token": active.token if active else None,
+            "new_token": new_token,
+        },
+    )
 
 
 @app.post("/settings")
@@ -169,24 +181,33 @@ async def settings_post(
     return _redirect("/settings")
 
 
-@app.get("/link/telegram", response_class=HTMLResponse)
-async def link_get(request: Request, db=Depends(get_db)):
+@app.post("/settings/token/generate")
+async def token_generate(request: Request, db=Depends(get_db)):
     user = await get_current_user(request, db)
     if not user:
         return _redirect("/login")
-    return _render("link.html", {"request": request, "user": user})
+    if not user.panel_creds_set:
+        return _render(
+            "settings.html",
+            {
+                "request": request,
+                "user": user,
+                "error": "Set your panel password first (Panel Credentials card).",
+            },
+        )
+    token = await create_token(db, user)
+    await log_activity(db, user.id, "token.generate", "generated telegram token")
+    return _redirect(f"/settings?new_token={token.token}")
 
 
-@app.post("/link/telegram/generate")
-async def link_generate(request: Request, db=Depends(get_db)):
+@app.post("/settings/token/revoke")
+async def token_revoke(request: Request, db=Depends(get_db)):
     user = await get_current_user(request, db)
     if not user:
         return _redirect("/login")
-    code = await set_link_code(db, user)
-    await log_activity(db, user.id, "link_code", "generated telegram link code")
-    return _render(
-        "link.html", {"request": request, "user": user, "code": code}
-    )
+    await revoke_user_tokens(db, user)
+    await log_activity(db, user.id, "token.revoke", "revoked telegram tokens")
+    return _redirect("/settings")
 
 
 # ----------------------------- Admin panel -----------------------------

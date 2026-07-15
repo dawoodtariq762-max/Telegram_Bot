@@ -5,9 +5,9 @@
 <div class="row">
   <div class="col-md-6">
     <div class="card mb-3">
-      <div class="card-header">Panel Credentials</div>
+      <div class="card-header">Panel Credentials (managed on this website)</div>
       <div class="card-body">
-        <p class="text-muted">Stored encrypted. The admin cannot see these.</p>
+        <p class="text-muted">Stored encrypted. The admin cannot see these, and Telegram never asks for them.</p>
         <form method="post" action="/settings">
           <div class="mb-3">
             <label class="form-label">Panel Username</label>
@@ -37,6 +37,44 @@
           </div>
           <button class="btn btn-primary" type="submit">Change Password</button>
         </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row mt-2">
+  <div class="col-12">
+    <div class="card border-primary">
+      <div class="card-header bg-primary text-white">Telegram Access Token</div>
+      <div class="card-body">
+        {% if new_token %}
+          <div class="alert alert-success">
+            <strong>New token generated.</strong> Copy it now and paste it into the bot:
+            <div class="input-group mt-2">
+              <input class="form-control" id="tok" value="{{ new_token }}" readonly/>
+              <button class="btn btn-outline-secondary" type="button" onclick="navigator.clipboard.writeText(document.getElementById('tok').value)">Copy</button>
+            </div>
+            <div class="form-text">For security this token is only shown once.</div>
+          </div>
+        {% elif active_token %}
+          <div class="alert alert-info">
+            <strong>You already have an active token.</strong> Generating a new one revokes it immediately.
+            <div class="input-group mt-2">
+              <input class="form-control" id="tok" value="{{ active_token }}" readonly/>
+              <button class="btn btn-outline-secondary" type="button" onclick="navigator.clipboard.writeText(document.getElementById('tok').value)">Copy</button>
+            </div>
+          </div>
+        {% else %}
+          <p class="text-muted">No active token yet. Generate one, then paste it into the Telegram bot to connect.</p>
+        {% endif %}
+        <form method="post" action="/settings/token/generate" class="d-inline">
+          <button class="btn btn-primary" type="submit">Generate Token</button>
+        </form>
+        {% if active_token or new_token %}
+          <form method="post" action="/settings/token/revoke" class="d-inline ms-2">
+            <button class="btn btn-outline-danger" type="submit">Revoke Token</button>
+          </form>
+        {% endif %}
       </div>
     </div>
   </div>
