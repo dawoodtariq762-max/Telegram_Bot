@@ -256,11 +256,11 @@ class PanelService:
             for row in chosen:
                 cb = await row.query_selector("input[type=checkbox]")
                 if cb:
-                    await cb.check()
+                    await self._check_checkbox(cb)
                 num_cell = await row.query_selector(f"td:nth-child({number_idx})")
                 num = (await num_cell.inner_text()).strip() if num_cell else ""
                 numbers.append(num)
-            await page.click(S.TABLE["assign_all_btn"])
+            await self._click_robust(page, S.TABLE["assign_all_btn"])
             await page.wait_for_selector(
                 S.POPUP["client_select"], timeout=self.settings.browser_timeout_ms
             )
@@ -268,7 +268,7 @@ class PanelService:
             await page.select_option(
                 S.POPUP["payment_select"], S.POPUP["payment_weekly_value"]
             )
-            await page.click(S.POPUP["allocate_submit"])
+            await self._click_robust(page, S.POPUP["allocate_submit"])
             await page.wait_for_timeout(S.TABLE_SETTLE_MS)
             log.info("panel.allocate.done", client=client_name, count=count, user=self.user_key)
             return numbers
@@ -284,3 +284,37 @@ class PanelService:
                 await page.select_option(selector, value=val)
                 return
         await page.select_option(selector, label=text)
+
+    async def _check_checkbox(self, cb) -> None:
+        """Check a row checkbox robustly.
+
+        A plain ``cb.check()`` can hang for the full timeout when an overlay
+        intercepts the click (Playwright waits for the element to *receive* the
+        click). We scroll it into view, force the click, and finally fall back
+        to a direct JS click which dispatches on the element itself and ignores
+        any overlay at those coordinates.
+        """
+        try:
+            await cb.scroll_into_view_if_needed()
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            await cb.check(force=True, timeout=8000)
+            return
+        except Exception as exc:  # noqa: BLE001
+            log.warning("panel.checkbox.force_failed", error=str(exc))
+        try:
+            await cb.evaluate("el => el.click()")
+        except Exception as exc:  # noqa: BLE001
+            raise PanelAuthError(f"Could not select row checkbox: {exc}") from exc
+
+    async def _click_robust(self, page, selector) -> None:
+        """Click an element, tolerating overlay interception."""
+        try:
+            await page.click(selector, force=True, timeout=8000)
+            return
+        except Exception as exc:  # noqa: BLE001
+            log.warning("panel.click.force_failed", selector=str(selector), error=str(exc))
+        await page.evaluate(
+            "(sel) => document.querySelector(sel).click()", selector
+        )
